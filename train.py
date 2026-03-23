@@ -23,6 +23,7 @@ import pickle
 import warnings
 import numpy as np
 import subprocess
+from datetime import datetime
 
 warnings.filterwarnings('ignore')
 
@@ -34,6 +35,14 @@ import xgboost as xgb
 
 # Import fixed utilities from prepare.py
 import prepare
+
+# ============================================================================
+# Model Directory Configuration
+# ============================================================================
+
+from pathlib import Path
+MODEL_DIR = Path(__file__).parent / "data" / "cache" / "models"
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
 # MODEL CONFIGURATION - Agent modifies this section
@@ -235,6 +244,12 @@ def main():
 
     training_time = time.time() - start_time
     print(f"  Training time: {training_time:.1f}s")
+
+    # Save model
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    model_path = MODEL_DIR / f"{MODEL_TYPE}_{timestamp}.pkl"
+    pickle.dump(model, open(model_path, 'wb'))
+    print(f"  Model saved: {model_path}")
 
     # Evaluate with appropriate function
     print("\nEvaluating...")

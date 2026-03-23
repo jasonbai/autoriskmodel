@@ -64,3 +64,7 @@ CLAUDE.md
 
 # Claude Code local settings
 .claude/
+
+# Test data and generated reports
+report/
+reference/*.csv

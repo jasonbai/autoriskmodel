@@ -31,9 +31,12 @@ from sklearn.metrics import roc_auc_score, roc_curve, confusion_matrix
 # 常量配置
 # ============================================================================
 
-CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "credit-autoresearch")
-MODEL_DIR = os.path.join(CACHE_DIR, "models")
-PROCESSED_DIR = os.path.join(CACHE_DIR, "processed")
+# 使用项目目录下的数据路径
+PROJECT_ROOT = Path(__file__).parent
+CACHE_DIR = PROJECT_ROOT / "data" / "cache"
+DATA_DIR = CACHE_DIR / "data"
+PROCESSED_DIR = CACHE_DIR / "processed"
+MODEL_DIR = CACHE_DIR / "models"
 
 # ============================================================================
 # 报告生成器类
@@ -42,9 +45,8 @@ PROCESSED_DIR = os.path.join(CACHE_DIR, "processed")
 class ModelReportGenerator:
     """模型报告生成器（Markdown格式）"""
 
-    def __init__(self, model_path=None, data_prefix='credit'):
+    def __init__(self, model_path=None):
         """初始化报告生成器"""
-        self.data_prefix = data_prefix
         self._load_data()
 
         if model_path is None:
@@ -59,19 +61,43 @@ class ModelReportGenerator:
         """加载预处理后的数据"""
         print("加载数据...")
 
-        with open(os.path.join(PROCESSED_DIR, f"{self.data_prefix}_X_train.pkl"), 'rb') as f:
-            self.X_train = pickle.load(f)
-        with open(os.path.join(PROCESSED_DIR, f"{self.data_prefix}_X_test.pkl"), 'rb') as f:
-            self.X_test = pickle.load(f)
-        with open(os.path.join(PROCESSED_DIR, f"{self.data_prefix}_y_train.pkl"), 'rb') as f:
-            self.y_train = pickle.load(f)
-        with open(os.path.join(PROCESSED_DIR, f"{self.data_prefix}_y_test.pkl"), 'rb') as f:
-            self.y_test = pickle.load(f)
-        with open(os.path.join(PROCESSED_DIR, f"{self.data_prefix}_feature_names.pkl"), 'rb') as f:
-            self.feature_names = pickle.load(f)
+        # 检查是否有三数据集模式
+        has_window_flag_path = PROCESSED_DIR / "has_window_flag.pkl"
+        self.has_window_flag = False
+        if has_window_flag_path.exists():
+            with open(has_window_flag_path, 'rb') as f:
+                self.has_window_flag = pickle.load(f)
 
-        print(f"  训练集: {self.X_train.shape}")
-        print(f"  测试集: {self.X_test.shape}")
+        # 加载训练数据
+        with open(PROCESSED_DIR / "X_train.pkl", 'rb') as f:
+            self.X_train = pickle.load(f)
+        with open(PROCESSED_DIR / "y_train.pkl", 'rb') as f:
+            self.y_train = pickle.load(f)
+
+        if self.has_window_flag:
+            # 三数据集模式
+            with open(PROCESSED_DIR / "X_val.pkl", 'rb') as f:
+                self.X_val = pickle.load(f)
+            with open(PROCESSED_DIR / "X_oot.pkl", 'rb') as f:
+                self.X_oot = pickle.load(f)
+            with open(PROCESSED_DIR / "y_val.pkl", 'rb') as f:
+                self.y_val = pickle.load(f)
+            with open(PROCESSED_DIR / "y_oot.pkl", 'rb') as f:
+                self.y_oot = pickle.load(f)
+            print(f"  训练集: {self.X_train.shape}")
+            print(f"  验证集: {self.X_val.shape}")
+            print(f"  OOT集: {self.X_oot.shape}")
+        else:
+            # 两数据集模式（兼容旧版本）
+            with open(PROCESSED_DIR / "X_test.pkl", 'rb') as f:
+                self.X_test = pickle.load(f)
+            with open(PROCESSED_DIR / "y_test.pkl", 'rb') as f:
+                self.y_test = pickle.load(f)
+            print(f"  训练集: {self.X_train.shape}")
+            print(f"  测试集: {self.X_test.shape}")
+
+        with open(PROCESSED_DIR / "feature_names.pkl", 'rb') as f:
+            self.feature_names = pickle.load(f)
         print(f"  特征数: {len(self.feature_names)}")
 
     def _find_latest_model(self):
@@ -100,10 +126,18 @@ class ModelReportGenerator:
         print("生成预测...")
 
         self.train_pred = self.model.predict_proba(self.X_train)[:, 1]
-        self.test_pred = self.model.predict_proba(self.X_test)[:, 1]
-
         self.train_pred_class = self.model.predict(self.X_train)
-        self.test_pred_class = self.model.predict(self.X_test)
+
+        if self.has_window_flag:
+            # 三数据集模式
+            self.val_pred = self.model.predict_proba(self.X_val)[:, 1]
+            self.oot_pred = self.model.predict_proba(self.X_oot)[:, 1]
+            self.val_pred_class = self.model.predict(self.X_val)
+            self.oot_pred_class = self.model.predict(self.X_oot)
+        else:
+            # 两数据集模式
+            self.test_pred = self.model.predict_proba(self.X_test)[:, 1]
+            self.test_pred_class = self.model.predict(self.X_test)
 
     def _calculate_scores(self):
         """计算评分（将概率转换为分数）"""
@@ -112,7 +146,6 @@ class ModelReportGenerator:
         # 使用logit转换：score = -log(odds) * factor + base_score
         epsilon = 1e-6
         train_odds = self.train_pred / (1 - self.train_pred + epsilon) + epsilon
-        test_odds = self.test_pred / (1 - self.test_pred + epsilon) + epsilon
 
         # 转换为分数（PDO方法）
         base_score = 600
@@ -120,11 +153,19 @@ class ModelReportGenerator:
         factor = pdo / np.log(2)
 
         self.train_score = base_score - factor * np.log(train_odds)
-        self.test_score = base_score - factor * np.log(test_odds)
-
-        # 限制分数范围到合理区间
         self.train_score = np.clip(self.train_score, 300, 900)
-        self.test_score = np.clip(self.test_score, 300, 900)
+
+        if self.has_window_flag:
+            val_odds = self.val_pred / (1 - self.val_pred + epsilon) + epsilon
+            oot_odds = self.oot_pred / (1 - self.oot_pred + epsilon) + epsilon
+            self.val_score = base_score - factor * np.log(val_odds)
+            self.oot_score = base_score - factor * np.log(oot_odds)
+            self.val_score = np.clip(self.val_score, 300, 900)
+            self.oot_score = np.clip(self.oot_score, 300, 900)
+        else:
+            test_odds = self.test_pred / (1 - self.test_pred + epsilon) + epsilon
+            self.test_score = base_score - factor * np.log(test_odds)
+            self.test_score = np.clip(self.test_score, 300, 900)
 
     # ========================================================================
     # 评估指标计算
@@ -159,10 +200,18 @@ class ModelReportGenerator:
     def generate_report(self, output_path=None):
         """生成Markdown格式的报告"""
 
+        # 创建 report 目录
+        report_dir = Path(__file__).parent / "report"
+        report_dir.mkdir(parents=True, exist_ok=True)
+
         if output_path is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = f"model_report_{timestamp}.md"
+            output_path = report_dir / f"model_report_{timestamp}.md"
+        elif not Path(output_path).is_absolute():
+            # 如果是相对路径，放到 report 目录下
+            output_path = report_dir / output_path
 
+        output_path = Path(output_path)
         print(f"\n生成Markdown报告: {output_path}")
 
         # 构建报告内容
@@ -173,7 +222,7 @@ class ModelReportGenerator:
             f.write(report_content)
 
         print(f"✅ 报告已生成: {output_path}")
-        return output_path
+        return str(output_path)
 
     def _build_report_content(self):
         """构建报告内容"""
@@ -199,19 +248,22 @@ class ModelReportGenerator:
         lines.append("\n---\n")
         lines.append("## 数据概览\n")
         lines.append("### 数据集统计\n")
-        lines.append("| 数据集 | 样本数 | 坏样本数 | 坏样本率 |")
-        lines.append("|--------|--------|----------|----------|")
 
         train_n = len(self.y_train)
         train_bad = int(self.y_train.sum())
         train_rate = self.y_train.mean()
 
-        test_n = len(self.y_test)
-        test_bad = int(self.y_test.sum())
-        test_rate = self.y_test.mean()
-
-        lines.append(f"| 训练集 | {train_n:,} | {train_bad:,} | {train_rate:.2%} |")
-        lines.append(f"| 测试集 | {test_n:,} | {test_bad:,} | {test_rate:.2%} |")
+        if self.has_window_flag:
+            lines.append("| 数据集 | 样本数 | 坏样本数 | 坏样本率 |")
+            lines.append("|--------|--------|----------|----------|")
+            lines.append(f"| 训练集 | {train_n:,} | {train_bad:,} | {train_rate:.2%} |")
+            lines.append(f"| 验证集 | {len(self.y_val):,} | {int(self.y_val.sum()):,} | {self.y_val.mean():.2%} |")
+            lines.append(f"| OOT集 | {len(self.y_oot):,} | {int(self.y_oot.sum()):,} | {self.y_oot.mean():.2%} |")
+        else:
+            lines.append("| 数据集 | 样本数 | 坏样本数 | 坏样本率 |")
+            lines.append("|--------|--------|----------|----------|")
+            lines.append(f"| 训练集 | {train_n:,} | {train_bad:,} | {train_rate:.2%} |")
+            lines.append(f"| 测试集 | {len(self.y_test):,} | {int(self.y_test.sum()):,} | {self.y_test.mean():.2%} |")
 
         lines.append(f"\n**特征数量**: {len(self.feature_names)}\n")
 
@@ -219,47 +271,68 @@ class ModelReportGenerator:
         lines.append("\n---\n")
         lines.append("## 模型性能\n")
         lines.append("### 评估指标\n")
-        lines.append("| 指标 | 训练集 | 测试集 |")
-        lines.append("|------|--------|--------|")
 
         train_metrics = self.calculate_metrics(self.y_train, self.train_pred)
-        test_metrics = self.calculate_metrics(self.y_test, self.test_pred)
 
-        lines.append(f"| AUC | {train_metrics['auc']:.4f} | {test_metrics['auc']:.4f} |")
-        lines.append(f"| KS | {train_metrics['ks']:.4f} | {test_metrics['ks']:.4f} |")
+        if self.has_window_flag:
+            val_metrics = self.calculate_metrics(self.y_val, self.val_pred)
+            oot_metrics = self.calculate_metrics(self.y_oot, self.oot_pred)
+            lines.append("| 指标 | 训练集 | 验证集 | OOT集 |")
+            lines.append("|------|--------|--------|-------|")
+            lines.append(f"| AUC | {train_metrics['auc']:.4f} | {val_metrics['auc']:.4f} | {oot_metrics['auc']:.4f} |")
+            lines.append(f"| KS | {train_metrics['ks']:.4f} | {val_metrics['ks']:.4f} | {oot_metrics['ks']:.4f} |")
 
-        overfitting = train_metrics['auc'] - test_metrics['auc']
-        lines.append(f"\n**过拟合程度**: {overfitting:.4f} (train_auc - test_auc)\n")
+            overfitting_oot = train_metrics['auc'] - oot_metrics['auc']
+            lines.append(f"\n**过拟合程度**: {overfitting_oot:.4f} (train_auc - oot_auc)\n")
+            test_metrics_for_rating = oot_metrics
+        else:
+            test_metrics = self.calculate_metrics(self.y_test, self.test_pred)
+            lines.append("| 指标 | 训练集 | 测试集 |")
+            lines.append("|------|--------|--------|")
+            lines.append(f"| AUC | {train_metrics['auc']:.4f} | {test_metrics['auc']:.4f} |")
+            lines.append(f"| KS | {train_metrics['ks']:.4f} | {test_metrics['ks']:.4f} |")
+
+            overfitting = train_metrics['auc'] - test_metrics['auc']
+            lines.append(f"\n**过拟合程度**: {overfitting:.4f} (train_auc - test_auc)\n")
+            test_metrics_for_rating = test_metrics
 
         # 性能评价
         lines.append("### 性能评价\n")
 
-        if test_metrics['auc'] >= 0.75:
+        if test_metrics_for_rating['auc'] >= 0.75:
             auc_level = "优秀"
-        elif test_metrics['auc'] >= 0.65:
+        elif test_metrics_for_rating['auc'] >= 0.65:
             auc_level = "良好"
-        elif test_metrics['auc'] >= 0.60:
+        elif test_metrics_for_rating['auc'] >= 0.60:
             auc_level = "一般"
         else:
             auc_level = "需改进"
 
-        lines.append(f"- **AUC评级**: {auc_level} ({test_metrics['auc']:.4f})\n")
+        lines.append(f"- **AUC评级**: {auc_level} ({test_metrics_for_rating['auc']:.4f})\n")
 
-        if test_metrics['ks'] >= 0.30:
+        if test_metrics_for_rating['ks'] >= 0.30:
             ks_level = "优秀"
-        elif test_metrics['ks'] >= 0.20:
+        elif test_metrics_for_rating['ks'] >= 0.20:
             ks_level = "良好"
         else:
             ks_level = "较弱"
 
-        lines.append(f"- **KS评级**: {ks_level} ({test_metrics['ks']:.4f})\n")
+        lines.append(f"- **KS评级**: {ks_level} ({test_metrics_for_rating['ks']:.4f})\n")
 
         # 模型稳定性
         lines.append("\n---\n")
         lines.append("## 模型稳定性\n")
         lines.append("### PSI分析\n")
 
-        psi = self.calculate_psi(self.train_score, self.test_score)
+        if self.has_window_flag:
+            psi_val = self.calculate_psi(self.train_score, self.val_score)
+            psi_oot = self.calculate_psi(self.train_score, self.oot_score)
+            lines.append(f"- **Train-Val PSI**: {psi_val:.4f}\n")
+            lines.append(f"- **Train-OOT PSI**: {psi_oot:.4f}\n")
+            psi = psi_oot
+        else:
+            psi = self.calculate_psi(self.train_score, self.test_score)
+            lines.append(f"- **总体PSI**: {psi:.4f}\n")
 
         if psi < 0.1:
             psi_level = "优秀 ✅"
@@ -268,7 +341,7 @@ class ModelReportGenerator:
         else:
             psi_level = "需要关注 ❌"
 
-        lines.append(f"- **总体PSI**: {psi:.4f} - {psi_level}\n")
+        lines.append(f"\n**PSI评级**: {psi_level}\n")
 
         lines.append("\n**PSI评判标准**:\n")
         lines.append("- PSI < 0.1: 稳定性变化很小 ✅")
@@ -278,7 +351,20 @@ class ModelReportGenerator:
         # 评分分布
         lines.append("\n---\n")
         lines.append("## 评分分布\n")
-        lines.append("### 等频分箱统计\n")
+        lines.append("### 等频分箱统计（基于")
+
+        if self.has_window_flag:
+            lines.append(" OOT集）\n")
+            eval_score = self.oot_score
+            eval_y = self.y_oot
+            eval_n = len(self.y_oot)
+            eval_bad_rate = self.y_oot.mean()
+        else:
+            lines.append(" 测试集）\n")
+            eval_score = self.test_score
+            eval_y = self.y_test
+            eval_n = len(self.y_test)
+            eval_bad_rate = self.y_test.mean()
 
         # 使用训练集确定分位数
         breakpoints = np.percentile(self.train_score, np.linspace(0, 100, 11))
@@ -290,16 +376,16 @@ class ModelReportGenerator:
             lower = breakpoints[i]
             upper = breakpoints[i + 1]
 
-            # 测试集中落在该区间的样本
-            mask = (self.test_score >= lower) & (self.test_score < upper)
+            # 评估集中落在该区间的样本
+            mask = (eval_score >= lower) & (eval_score < upper)
             n_samples = mask.sum()
-            n_bad = (self.y_test[mask]).sum()
+            n_bad = (eval_y[mask]).sum()
             bad_rate = n_bad / n_samples if n_samples > 0 else 0
-            lift = bad_rate / self.y_test.mean() if self.y_test.mean() > 0 else 0
+            lift = bad_rate / eval_bad_rate if eval_bad_rate > 0 else 0
 
-            lines.append(f"| {i+1} | [{lower:.1f}, {upper:.1f}) | {n_samples} | {n_samples/test_n:.2%} | {int(n_bad)} | {bad_rate:.2%} | {lift:.2f} |")
+            lines.append(f"| {i+1} | [{lower:.1f}, {upper:.1f}) | {n_samples} | {n_samples/eval_n:.2%} | {int(n_bad)} | {bad_rate:.2%} | {lift:.2f} |")
 
-        lines.append(f"\n**评分范围**: {self.test_score.min():.1f} - {self.test_score.max():.1f}\n")
+        lines.append(f"\n**评分范围**: {eval_score.min():.1f} - {eval_score.max():.1f}\n")
 
         # 特征重要性
         lines.append("\n---\n")
@@ -366,7 +452,7 @@ class ModelReportGenerator:
         lines.append("## 总结\n")
 
         lines.append("### 模型优势\n")
-        if test_metrics['auc'] >= 0.70:
+        if test_metrics_for_rating['auc'] >= 0.70:
             lines.append("- ✅ 排序能力强（AUC ≥ 0.70）")
         else:
             lines.append("- ⚠️ 排序能力中等（AUC < 0.70）")
@@ -376,17 +462,23 @@ class ModelReportGenerator:
         else:
             lines.append("- ⚠️ 模型稳定性需关注（PSI ≥ 0.1）")
 
-        if overfitting < 0.05:
+        # 计算过拟合程度
+        if self.has_window_flag:
+            overfitting_sum = train_metrics['auc'] - oot_metrics['auc']
+        else:
+            overfitting_sum = train_metrics['auc'] - test_metrics['auc']
+
+        if overfitting_sum < 0.05:
             lines.append("- ✅ 过拟合程度低（< 0.05）")
         else:
             lines.append("- ⚠️ 存在一定过拟合（≥ 0.05）")
 
         lines.append("\n### 建议\n")
 
-        if test_metrics['auc'] < 0.65:
+        if test_metrics_for_rating['auc'] < 0.65:
             lines.append("- 考虑增加特征工程或调整模型参数")
 
-        if overfitting > 0.10:
+        if overfitting_sum > 0.10:
             lines.append("- 建议增加正则化强度或减少模型复杂度")
 
         if psi > 0.1:
@@ -418,12 +510,6 @@ def main():
         default=None,
         help='输出Markdown文件路径（默认：model_report_YYYYMMDD_HHMMSS.md）'
     )
-    parser.add_argument(
-        '--data-prefix',
-        type=str,
-        default='credit',
-        help='数据文件前缀'
-    )
 
     args = parser.parse_args()
 
@@ -432,10 +518,7 @@ def main():
     print("="*60)
 
     # 创建报告生成器
-    generator = ModelReportGenerator(
-        model_path=args.model,
-        data_prefix=args.data_prefix
-    )
+    generator = ModelReportGenerator(model_path=args.model)
 
     # 生成报告
     output_path = generator.generate_report(args.output)

@@ -23,7 +23,15 @@ echo "Preparing data..."
 if [ ! -f data/cache/processed/X_train.pkl ]; then
     python prepare.py ./reference/train.csv
 else
-    echo "✓ Data already prepared"
+    echo "Checking cache compatibility..."
+    # Try to load the cached data to verify it's compatible
+    if python -c "import pickle; pickle.load(open('data/cache/processed/X_train.pkl', 'rb'))" 2>/dev/null; then
+        echo "✓ Data already prepared"
+    else
+        echo "⚠ Cache incompatible (pandas version changed), regenerating..."
+        rm -rf data/cache/processed/*.pkl
+        python prepare.py ./reference/train.csv
+    fi
 fi
 
 # Run baseline

@@ -521,7 +521,7 @@ HPARAMS = {
 
 ## 📜 许可证
 
-MIT（基于原始AutoResearch）
+Apache-2.0 - 详见 [LICENSE](LICENSE) 文件
 
 ## 🙏 致谢
 

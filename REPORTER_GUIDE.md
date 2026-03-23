@@ -13,11 +13,15 @@
 python reporter.py
 
 # 指定模型文件
-python reporter.py --model data/cache/models/LightGBM_20260320_101241.pkl
+python reporter.py --model data/cache/models/lightgbm_20260320_101241.pkl
 
 # 指定输出路径
 python reporter.py --output my_report.md
 ```
+
+说明：
+- `--output` 传相对路径时，文件会写入 `report/` 目录
+- 如果希望输出到指定绝对路径，请传绝对路径
 
 ## 报告内容
 
@@ -107,8 +111,7 @@ python reporter.py --output my_report.md
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | `--model` | 模型文件路径 | 最新模型 |
-| `--output` | 输出Markdown文件路径 | model_report_YYYYMMDD_HHMMSS.md |
-| `--data-prefix` | 数据文件前缀 | credit |
+| `--output` | 输出Markdown文件路径 | `report/model_report_YYYYMMDD_HHMMSS.md` |
 
 ## 评估指标说明
 
@@ -157,7 +160,7 @@ python reporter.py --output my_report.md
 
 ## 最佳模型配置参考
 
-根据23次自动实验验证的最佳配置：
+以下配置是某次历史最佳实验配置快照，用于说明调参思路，不等同于当前 `train.py` 默认值：
 
 ```python
 MODEL_TYPE = 'lightgbm'

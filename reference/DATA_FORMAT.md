@@ -2,12 +2,12 @@
 
 ## 实验数据集要求
 
-### 必需列
+### 核心列
 
 | 列名 | 类型 | 说明 | 示例 |
 |------|------|------|------|
 | `y_flag` | int | 目标变量（0=好样本，1=坏样本） | 0, 1 |
-| `window_flag` | string | 数据集分割标识 | train, val, oot |
+| `window_flag` | string | 推荐提供，用于启用 train/val/oot 三数据集评估 | train, val, oot |
 
 ### 特征列
 
@@ -28,7 +28,7 @@
 
 ## 数据集分割
 
-根据 `window_flag` 列自动分割：
+推荐根据 `window_flag` 列进行自动分割；如果缺失，该项目会回退到两数据集模式：
 
 | window_flag | 数据集 | 用途 | 建议比例 |
 |-------------|--------|------|----------|
@@ -60,7 +60,7 @@ y_flag,window_flag,feature_1,feature_2,feature_3
 
 ## 准备步骤
 
-1. 准备 CSV 文件，确保包含 `y_flag` 和 `window_flag` 列
+1. 准备 CSV 文件，确保包含 `y_flag` 列；推荐提供 `window_flag` 列
 2. 将文件放置在 `reference/train.csv`
 3. 运行数据准备：
    ```bash

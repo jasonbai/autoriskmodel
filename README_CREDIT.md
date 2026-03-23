@@ -2,6 +2,8 @@
 
 > 🤖 **让AI自动进行风控建模研究** - 基于Andrej Karpathy的AutoResearch框架
 
+> 本文档是详细说明文档；如果你只想快速上手，请先看 `README.md`。
+
 ## 🎯 项目简介
 
 本项目实现了AutoResearch核心思想在风控建模领域的应用。
@@ -51,28 +53,9 @@ bash init.sh
 - 一晚上（8小时）约480次实验
 - 自动找到最优模型配置
 
-### 方式2：直接使用最佳配置
+### 方式2：参考历史最佳配置
 
-直接使用已验证的最佳配置：
-
-```python
-MODEL_TYPE = 'lightgbm'
-
-HPARAMS = {
-    'num_leaves': 7,
-    'learning_rate': 0.03,
-    'max_depth': 2,
-    'n_estimators': 100,
-    'reg_alpha': 1.0,
-    'reg_lambda': 1.0,
-    'bagging_fraction': 0.8,
-    'bagging_freq': 5,
-    'feature_fraction': 0.7,
-    'extra_trees': True,  # ⭐ 核心突破
-    'verbose': -1,
-    'random_state': 42,
-}
-```
+历史最佳实验配置见下文“历史最佳模型配置详解”章节，可作为调参参考，不等同于当前 `train.py` 默认值。
 
 ### 方式3：生成报告
 
@@ -82,7 +65,11 @@ HPARAMS = {
 python reporter.py --output ./模型报告.md
 ```
 
-## 🏆 最佳模型配置详解
+说明：当 `--output` 传相对路径时，报告会写入 `report/` 目录。
+
+## 🏆 历史最佳模型配置详解
+
+以下配置和指标来自某次历史最佳实验快照，用于说明调参思路，不等同于当前 `train.py` 默认值。
 
 ### 完整参数说明
 
@@ -198,12 +185,12 @@ credit-autoresearch/               # 项目根目录
 
 **第一步：准备 CSV 文件**
 
-创建一个包含以下必需列的 CSV 文件：
+创建一个包含以下核心列的 CSV 文件：
 
 | 列名 | 类型 | 说明 | 必需 |
 |------|------|------|------|
 | `y_flag` | int | 目标变量（0=好样本，1=坏样本） | ✅ |
-| `window_flag` | string | 数据集分割标识（train/val/oot） | ✅ |
+| `window_flag` | string | 推荐提供，用于启用 train/val/oot 三数据集评估 | 推荐 |
 | 特征列 | 数值型 | 风控特征变量 | ✅ |
 
 **第二步：数据质量检查**
@@ -212,7 +199,7 @@ credit-autoresearch/               # 项目根目录
 |------|------|------|
 | **文件格式** | CSV | 标准逗号分隔值文件 |
 | **目标变量** | `y_flag` 列 | 二分类标签：0=好样本，1=坏样本 |
-| **窗口标识** | `window_flag` 列 | train/val/oot 分割标识 |
+| **窗口标识** | 推荐提供 `window_flag` 列 | 启用 train/val/oot 三数据集评估；缺失时回退为两数据集模式 |
 | **特征类型** | 数值型 | 文本列会自动删除 |
 | **样本量** | 建议 >10,000 | 样本越多模型越好 |
 | **坏样本率** | 1-20% | 目标变量中 1 的比例 |
@@ -312,7 +299,7 @@ DROP_PATTERNS = ['mob', 'fpd', 'dpd']
 - **OOT**: Out-of-Time，最终泛化测试
 
 ### 数据泄露防护
-- ✅ 自动Y-Flag检测
+- ✅ 校验 `y_flag` 目标列是否存在
 - ✅ 泄露特征警告（mob/fpd/dpd）
 - ✅ 模式匹配删除
 
@@ -346,44 +333,6 @@ AI Agent无限循环：
 - 目标指标：oot_auc（越高越好）
 - 训练时间：约1分钟/次
 - 实验次数：约60次/小时
-
-## 💡 使用示例
-
-### 示例1：自动研究
-
-```bash
-bash init.sh
-```
-
-在Claude Code中：
-```
-"请阅读program.md并开始自动研究，目标是最大化oot_auc！"
-```
-
-AI会自动：
-1. 创建实验分支
-2. 修改 train.py
-3. 运行实验
-4. 记录结果到 results.tsv
-5. 保留改进的配置
-6. 无限循环...
-
-### 示例2：生成报告
-
-```bash
-# 使用最新模型生成报告
-python reporter.py
-
-# 指定输出路径
-python reporter.py --output ./我的模型报告.md
-```
-
-## 📖 文档
-
-| 文档 | 内容 |
-|------|------|
-| [README.md](README.md) | 项目总览 |
-| [REPORTER_GUIDE.md](REPORTER_GUIDE.md) | 报告生成器完整指南 |
 
 ## 🔧 工作流
 
@@ -456,36 +405,11 @@ python train.py | grep "^val_auc:\|^oot_auc:\|^stability:\|^total_score:"
 sort -t$'\t' -k11 -rn results.tsv | head -5  # 按 total_score 排序
 ```
 
-### 迁移旧结果
-
-如果之前使用旧版格式，可使用迁移脚本：
-
-```bash
-python migrate_results.py results.tsv.backup results.tsv
-```
-
 ## 💡 最佳实践
 
 ### 1. 从最佳配置开始
 
-```python
-# 直接使用已验证的最佳配置
-MODEL_TYPE = 'lightgbm'
-HPARAMS = {
-    'num_leaves': 7,
-    'learning_rate': 0.03,
-    'max_depth': 2,
-    'n_estimators': 100,
-    'reg_alpha': 1.0,
-    'reg_lambda': 1.0,
-    'bagging_fraction': 0.8,
-    'bagging_freq': 5,
-    'feature_fraction': 0.7,
-    'extra_trees': True,
-    'verbose': -1,
-    'random_state': 42,
-}
-```
+优先参考上文“历史最佳模型配置详解”中的配置快照，再根据你的数据分布和稳定性要求做微调。
 
 ### 2. 根据数据特征调整
 
